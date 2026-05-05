@@ -41,9 +41,11 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # Explicitly enable the Virtual Network Stack (LWIP)
+        # 1. Corrected the path to android.toolchain.cmake
+        # 2. Added -G "Unix Makefiles" to ensure it finds 'make'
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolcache.cmake \
+          -G "Unix Makefiles" \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
           -DANDROID_ABI=arm64-v8a \
           -DANDROID_PLATFORM=android-24 \
           -DCMAKE_BUILD_TYPE=Release \
@@ -58,21 +60,20 @@ jobs:
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
         
-        # 1. Patch pylon.cpp for Android and C-Linkage
-        # Swap the bits header
+        # Patch pylon.cpp: 
+        # 1. Swap bits header
+        # 2. Properly wrap ZeroTierSockets.h in extern "C"
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         
-        # Correctly wrap the header in extern "C" using multiple lines
-        # This prevents the "expected unqualified-id" error
-        sed -i 's|#include "ZeroTierSockets.h"|extern "C" {\n#include "ZeroTierSockets.h"\n}|g' pylon.cpp
+        # This multi-line insertion is cleaner for the compiler
+        sed -i '/#include "ZeroTierSockets.h"/i extern "C" {' pylon.cpp
+        sed -i '/#include "ZeroTierSockets.h"/a }' pylon.cpp
         
-        # 2. Define NDK Paths
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
         
-        # 3. Compile and Link
-        # Note the addition of ZT_SDK_VIRTUAL_NETWORKSTACK=1 so the headers enable the right structs
+        # Added -DZT_SDK_VIRTUAL_NETWORKSTACK=1 to the compiler flags
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
