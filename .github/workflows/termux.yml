@@ -58,7 +58,6 @@ jobs:
         echo "Found libzt.a at: $LIBZT_PATH"
         
         # 2. Patch pylon.cpp for Android compatibility
-        # Replace the glibc-specific bits/types.h with the universal sys/types.h
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         
         # 3. Define NDK Paths
@@ -67,15 +66,18 @@ jobs:
         SYSROOT="$TOOLCHAIN/sysroot"
         
         # 4. Compile Pylon
-        # We explicitly add the sysroot include path to ensure headers are found
+        # Added three specific Prometheus include paths required by ZeroTier Core
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -I$SYSROOT/usr/include \
           -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
-          -Iext/libzt/ext/ZeroTierOne/osdep \
-          -Iext/libzt/ext/ZeroTierOne/node \
           -Iext/libzt/ext/ZeroTierOne/include \
+          -Iext/libzt/ext/ZeroTierOne/node \
+          -Iext/libzt/ext/ZeroTierOne/osdep \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include \
           -std=c++11 pylon.cpp -o pylon_arm64 \
           $LIBZT_PATH \
           -llog -landroid -latomic -static-libstdc++
