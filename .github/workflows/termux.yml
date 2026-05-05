@@ -41,7 +41,8 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # Inject flags into CMAKE_CXX_FLAGS to force Virtual Network Stack
+        # We add ZT_SDK_VIRTUAL_NETWORKSTACK to the global CXX flags
+        # AND the specific CMake variable as a double-measure.
         cmake .. \
           -G "Unix Makefiles" \
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -49,41 +50,41 @@ jobs:
           -DANDROID_PLATFORM=android-24 \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=OFF \
+          -DZT_SDK_VIRTUAL_NETWORKSTACK=ON \
+          -DZT_BUILD_VIRTUAL_NETWORK_STACK=ON \
           -DCMAKE_CXX_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -DZT_BUILD_VIRTUAL_NETWORK_STACK=1" \
           -DCMAKE_C_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -DZT_BUILD_VIRTUAL_NETWORK_STACK=1"
         
-        # Build everything in the project
         make -j$(nproc)
 
-    - name: Build Pylon Binary (Aggressive Linking)
+    - name: Build Pylon Binary (Multi-Lib Link)
       run: |
-        # 1. Find the REAL library. We ignore small helper libs like miniupnpc.
-        # We look for files over 1MB which usually indicates the main ZT engine.
-        LIBZT_PATH=$(find ext/libzt/build_stat -name "*.a" -size +1M | head -n 1)
+        # 1. Create a directory to extract ALL objects
+        mkdir -p obj_extract
         
-        if [ -z "$LIBZT_PATH" ]; then
-          echo "Main library not found by size, falling back to name search..."
-          LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt*.a" ! -name "*mini*" | head -n 1)
-        fi
+        # 2. Find ALL .a files in the build directory.
+        # libzto_pic.a has the core, but libzt.a or similar has the socket layer.
+        # We exclude miniupnpc to avoid confusion.
+        LIBS=$(find ext/libzt/build_stat -name "*.a" ! -name "*miniupnpc*")
+        echo "Found libraries to merge: $LIBS"
         
-        echo "Linking against: $LIBZT_PATH"
-        
-        # 2. Extract objects 
-        mkdir -p obj_extract && cd obj_extract
-        $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIBZT_PATH
-        cd ..
+        for LIB in $LIBS; do
+          echo "Extracting $LIB..."
+          cd obj_extract
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIB
+          cd ..
+        done
 
-        # 3. Patching and Headers
+        # 3. Patch pylon.cpp and headers
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
         echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
 
-        # 4. NDK Paths
+        # 4. Final Compilation
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
-        # 5. Final Compilation
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
@@ -93,9 +94,6 @@ jobs:
           -Iext/libzt/ext/ZeroTierOne/include \
           -Iext/libzt/ext/ZeroTierOne/node \
           -Iext/libzt/ext/ZeroTierOne/osdep \
-          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include \
-          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include \
-          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include \
           -std=c++11 pylon.cpp \
           obj_extract/*.o \
           -o pylon_arm64 \
