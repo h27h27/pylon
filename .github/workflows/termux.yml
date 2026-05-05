@@ -1,36 +1,62 @@
-name: Build Pylon for Termux
+name: Build Pylon for Termux (AArch64)
 
 on: [workflow_dispatch]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          repository: zerotier/pylon
-          submodules: 'recursive'
-          fetch-depth: 0
+    - name: Checkout Pylon
+      uses: actions/checkout@v4
+      with:
+        repository: zerotier/pylon
+        submodules: 'recursive'
+        fetch-depth: 0
 
-      - name: Install Cross-Compilation Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake make
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: Build Pylon
-        run: |
-          # We tell the compiler to target ARM64
-          # Pylon's build system will pick up these flags
-          export CC=aarch64-linux-gnu-gcc
-          export CXX=aarch64-linux-gnu-g++
-          
-          # Run the release build
-          make release
+    - name: Setup Android SDK & NDK
+      uses: android-actions/setup-android@v3
 
-      - name: Upload Termux Binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: pylon-termux-aarch64
-          path: pylon
+    - name: Install NDK & CMake
+      run: |
+        # Using the versions that worked for you previously
+        sdkmanager "ndk;25.1.8937393" "cmake;3.22.1"
+        
+        NDK_PATH="$ANDROID_SDK_ROOT/ndk/25.1.8937393"
+        echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+        echo "NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
+        echo "$ANDROID_SDK_ROOT/cmake/3.22.1/bin" >> $GITHUB_PATH
+
+    - name: Build libzt Dependency
+      run: |
+        # Move into the libzt submodule and build the static library for AArch64
+        cd ext/libzt
+        chmod +x build.sh
+        ./build.sh android-static "release" -DANDROID_ABI=arm64-v8a
+
+    - name: Build Pylon Binary
+      run: |
+        # Now we manually run clang++ with the correct paths
+        # This replaces the failing 'make release' command
+        
+        /usr/bin/aarch64-linux-gnu-g++ -O3 \
+          -Iext/libzt/include \
+          -Iext/libzt/ext/ZeroTierOne/osdep \
+          -std=c++11 pylon.cpp -o pylon_arm64 \
+          ext/libzt/dist/android-arm64-v8a-release/lib/libzt.a \
+          -lpthread
+
+    - name: Upload Pylon for Termux
+      uses: actions/upload-artifact@v4
+      with:
+        name: pylon-termux-arm64
+        path: pylon_arm64
