@@ -57,22 +57,28 @@ jobs:
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
         
-        # 2. Define NDK Paths
+        # 2. Patch pylon.cpp for Android compatibility
+        # Replace the glibc-specific bits/types.h with the universal sys/types.h
+        sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
+        
+        # 3. Define NDK Paths
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
         
-        # 3. Compile Pylon
-        # We add the sysroot so it can find bits/types.h and other system headers
+        # 4. Compile Pylon
+        # We explicitly add the sysroot include path to ensure headers are found
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
+          -I$SYSROOT/usr/include \
+          -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
           -Iext/libzt/ext/ZeroTierOne/osdep \
           -Iext/libzt/ext/ZeroTierOne/node \
           -Iext/libzt/ext/ZeroTierOne/include \
           -std=c++11 pylon.cpp -o pylon_arm64 \
           $LIBZT_PATH \
-          -llog -landroid -latomic
+          -llog -landroid -latomic -static-libstdc++
 
     - name: Upload Pylon for Termux
       uses: actions/upload-artifact@v4
