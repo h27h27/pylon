@@ -41,8 +41,8 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # 1. Corrected the path to android.toolchain.cmake
-        # 2. Added -G "Unix Makefiles" to ensure it finds 'make'
+        # 1. Added -fvisibility=default to ensure symbols aren't hidden
+        # 2. Forced ZTS_ENABLE_LWIP and VIRTUAL_NETWORKSTACK
         cmake .. \
           -G "Unix Makefiles" \
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -50,23 +50,27 @@ jobs:
           -DANDROID_PLATFORM=android-24 \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_CXX_FLAGS="-fvisibility=default" \
+          -DCMAKE_C_FLAGS="-fvisibility=default" \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=ON \
+          -DZT_ENABLE_LWIP=ON \
           -DZT_NO_LOGGING=ON
         
         make -j$(nproc)
+        
+        # Debug Step: Check if zts_socket exists in the library
+        echo "Checking for zts_socket in libzt.a..."
+        $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm libzt.a | grep zts_socket || echo "SYMBOL NOT FOUND"
 
     - name: Build Pylon Binary
       run: |
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
-        echo "Found libzt.a at: $LIBZT_PATH"
-
-        # 1. Patch the libzt header directly to FORCE C-linkage
-        # We insert the extern "C" guard at the very top of the header file
+        
+        # 1. Patch the header directly (More robust than sed on pylon.cpp)
         ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
-        sed -i '1i #ifdef __cplusplus\nextern "C" {\n#endif' "$ZTS_HEADER"
-        echo -e "#ifdef __cplusplus\n}\n#endif" >> "$ZTS_HEADER"
+        echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
 
-        # 2. Patch pylon.cpp for Android bits/types.h
+        # 2. Patch pylon.cpp for Android headers
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
 
         # 3. Define NDK Paths
@@ -74,13 +78,11 @@ jobs:
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
-        # 4. Compile and Link
-        # IMPORTANT: We put the $LIBZT_PATH at the VERY END. 
-        # In many linkers, order matters: the object file that NEEDS symbols 
-        # must come before the library that PROVIDES them.
+        # 4. Compile with explicit ZTS_ENABLE_LWIP
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
+          -DZT_ENABLE_LWIP=1 \
           -I$SYSROOT/usr/include \
           -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
