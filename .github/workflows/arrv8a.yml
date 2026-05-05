@@ -1,0 +1,101 @@
+name: Build Pylon for Termux (AArv8a)
+
+on: [workflow_dispatch]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Pylon
+      uses: actions/checkout@v4
+      with:
+        repository: zerotier/pylon
+        submodules: 'recursive'
+        fetch-depth: 0
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK & NDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install NDK & CMake
+      run: |
+        # Using the versions that worked for you previously
+        sdkmanager "ndk;25.1.8937393" "cmake;3.22.1"
+        
+        NDK_PATH="$ANDROID_SDK_ROOT/ndk/25.1.8937393"
+        echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+        echo "NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
+        echo "$ANDROID_SDK_ROOT/cmake/3.22.1/bin" >> $GITHUB_PATH
+
+    - name: Build libzt Dependency (Static)
+      run: |
+        cd ext/libzt
+        mkdir -p build_stat && cd build_stat
+        
+        cmake .. \
+          -G "Unix Makefiles" \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-24 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DZT_SDK_VIRTUAL_NETWORKSTACK=ON \
+          -DCMAKE_CXX_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -march=armv8-a" \
+          -DCMAKE_C_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -march=armv8-a"
+        
+        make -j$(nproc)
+
+    - name: Build Pylon Binary (ARMv8-A Optimized)
+      run: |
+        # 1. Extraction (Keep the logic that worked)
+        mkdir -p obj_extract
+        LIBS=$(find ext/libzt/build_stat -name "*.a")
+        for LIB in $LIBS; do
+          cd obj_extract
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar xo ../$LIB
+          cd ..
+        done
+
+        # 2. Patching (As before)
+        sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
+        ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
+        echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
+
+        # 3. Define NDK Paths
+        TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+        CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
+        SYSROOT="$TOOLCHAIN/sysroot"
+
+        # 4. Final Compilation with ARMv8-A Architecture flag
+        $CLANG_PATH -O3 \
+          --sysroot=$SYSROOT \
+          -march=armv8-a \
+          -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
+          -I$SYSROOT/usr/include \
+          -I$SYSROOT/usr/include/aarch64-linux-android \
+          -Iext/libzt/include \
+          -Iext/libzt/ext/ZeroTierOne/include \
+          -Iext/libzt/ext/ZeroTierOne/node \
+          -Iext/libzt/ext/ZeroTierOne/osdep \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include \
+          -std=c++11 pylon.cpp \
+          obj_extract/*.o \
+          -o pylon_arm64 \
+          -llog -landroid -latomic -static-libstdc++
+
+    - name: Upload Pylon for Termux
+      uses: actions/upload-artifact@v4
+      with:
+        name: pylon-termux-arm64
+        path: pylon_arm64
