@@ -54,19 +54,39 @@ jobs:
         
         make -j$(nproc) zt-static
 
+    - name: Build libzt Dependency (Static)
+      run: |
+        cd ext/libzt
+        mkdir -p build_stat && cd build_stat
+        
+        # We use -DZT_BUILD_VIRTUAL_NETWORK_STACK (common in newer libzt)
+        # and -DLIBZT_BUILD_STATIC
+        cmake .. \
+          -G "Unix Makefiles" \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-24 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DZT_BUILD_VIRTUAL_NETWORK_STACK=ON \
+          -DZT_VIRTUAL_NETWORK_STACK=ON \
+          -DZT_LWIP=ON
+        
+        # Build the default target (usually 'zt')
+        make -j$(nproc)
+
     - name: Build Pylon Binary (Object Extraction Method)
       run: |
-        # 1. Find the library
-        LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
-        echo "Extracting objects from: $LIBZT_PATH"
+        # 1. Find the library regardless of name (could be libzt.a or libzt-host.a)
+        LIBZT_PATH=$(find ext/libzt/build_stat -name "*.a" | head -n 1)
+        echo "Found library: $LIBZT_PATH"
         
-        # 2. Extract all .o files from the static library into a temp folder
-        # This is the 'Nuclear Option' to ensure every symbol is available
+        # 2. Extract object files
         mkdir -p obj_extract && cd obj_extract
         $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIBZT_PATH
         cd ..
 
-        # 3. Patch pylon.cpp for Android/C compatibility
+        # 3. Patch pylon.cpp
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
         echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
@@ -76,11 +96,11 @@ jobs:
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
-        # 5. Compile pylon.cpp AND link all extracted objects directly
-        # We use obj_extract/*.o to force the linker to include everything
+        # 5. Final Compilation
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
+          -DZT_VIRTUAL_NETWORK_STACK=1 \
           -I$SYSROOT/usr/include \
           -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
