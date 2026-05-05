@@ -59,32 +59,27 @@ jobs:
 
     - name: Build Pylon Binary (Multi-Lib Link)
       run: |
-        # 1. Create a directory to extract ALL objects
+        # 1. Extraction (Keep your existing extraction logic)
         mkdir -p obj_extract
-        
-        # 2. Find ALL .a files in the build directory.
-        # libzto_pic.a has the core, but libzt.a or similar has the socket layer.
-        # We exclude miniupnpc to avoid confusion.
         LIBS=$(find ext/libzt/build_stat -name "*.a" ! -name "*miniupnpc*")
-        echo "Found libraries to merge: $LIBS"
-        
         for LIB in $LIBS; do
-          echo "Extracting $LIB..."
           cd obj_extract
           $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIB
           cd ..
         done
 
-        # 3. Patch pylon.cpp and headers
+        # 2. Patch pylon.cpp and headers
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
         echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
 
-        # 4. Final Compilation
+        # 3. Define NDK Paths
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
+        # 4. Comprehensive Compilation
+        # Added paths for Prometheus and 3rd party includes found in ZeroTierOne
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
@@ -94,6 +89,9 @@ jobs:
           -Iext/libzt/ext/ZeroTierOne/include \
           -Iext/libzt/ext/ZeroTierOne/node \
           -Iext/libzt/ext/ZeroTierOne/osdep \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include \
+          -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include \
           -std=c++11 pylon.cpp \
           obj_extract/*.o \
           -o pylon_arm64 \
