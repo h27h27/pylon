@@ -59,8 +59,8 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # We use -DZT_BUILD_VIRTUAL_NETWORK_STACK (common in newer libzt)
-        # and -DLIBZT_BUILD_STATIC
+        # We inject flags directly into CMAKE_CXX_FLAGS to ensure they are used
+        # even if the project variables don't match our names.
         cmake .. \
           -G "Unix Makefiles" \
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -68,25 +68,24 @@ jobs:
           -DANDROID_PLATFORM=android-24 \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=OFF \
-          -DZT_BUILD_VIRTUAL_NETWORK_STACK=ON \
-          -DZT_VIRTUAL_NETWORK_STACK=ON \
-          -DZT_LWIP=ON
+          -DCMAKE_CXX_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -DZT_BUILD_VIRTUAL_NETWORK_STACK=1" \
+          -DCMAKE_C_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1 -DZT_BUILD_VIRTUAL_NETWORK_STACK=1"
         
-        # Build the default target (usually 'zt')
+        # Build the default target (usually 'zt' or 'zt-host')
         make -j$(nproc)
 
     - name: Build Pylon Binary (Object Extraction Method)
       run: |
-        # 1. Find the library regardless of name (could be libzt.a or libzt-host.a)
+        # 1. Find the static library (could be libzt.a, libzt-host.a, etc.)
         LIBZT_PATH=$(find ext/libzt/build_stat -name "*.a" | head -n 1)
         echo "Found library: $LIBZT_PATH"
         
-        # 2. Extract object files
+        # 2. Extract object files to force-link every symbol
         mkdir -p obj_extract && cd obj_extract
         $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIBZT_PATH
         cd ..
 
-        # 3. Patch pylon.cpp
+        # 3. Patch pylon.cpp and headers
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
         ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
         echo -e "#ifdef __cplusplus\nextern \"C\" {\n#endif\n$(cat $ZTS_HEADER)\n#ifdef __cplusplus\n}\n#endif" > "$ZTS_HEADER"
@@ -96,11 +95,10 @@ jobs:
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
-        # 5. Final Compilation
+        # 5. Final Comprehensive Compilation
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
-          -DZT_VIRTUAL_NETWORK_STACK=1 \
           -I$SYSROOT/usr/include \
           -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
