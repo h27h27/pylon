@@ -41,26 +41,8 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        cmake .. \
-          -G "Unix Makefiles" \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
-          -DANDROID_ABI=arm64-v8a \
-          -DANDROID_PLATFORM=android-24 \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBUILD_SHARED_LIBS=OFF \
-          -DZT_SDK_VIRTUAL_NETWORKSTACK=ON \
-          -DZT_ENABLE_LWIP=ON \
-          -DZT_NO_LOGGING=ON
-        
-        make -j$(nproc) zt-static
-
-    - name: Build libzt Dependency (Static)
-      run: |
-        cd ext/libzt
-        mkdir -p build_stat && cd build_stat
-        
-        # We inject flags directly into CMAKE_CXX_FLAGS to ensure they are used
-        # even if the project variables don't match our names.
+        # Inject flags into CMAKE_CXX_FLAGS to ensure they are used 
+        # regardless of what the CMake project thinks they are called.
         cmake .. \
           -G "Unix Makefiles" \
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -76,11 +58,11 @@ jobs:
 
     - name: Build Pylon Binary (Object Extraction Method)
       run: |
-        # 1. Find the static library (could be libzt.a, libzt-host.a, etc.)
+        # 1. Find the static library produced (usually libzt.a or libzt-host.a)
         LIBZT_PATH=$(find ext/libzt/build_stat -name "*.a" | head -n 1)
-        echo "Found library: $LIBZT_PATH"
+        echo "Found library at: $LIBZT_PATH"
         
-        # 2. Extract object files to force-link every symbol
+        # 2. Extract objects to ensure every symbol is available to the linker
         mkdir -p obj_extract && cd obj_extract
         $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIBZT_PATH
         cd ..
@@ -96,6 +78,8 @@ jobs:
         SYSROOT="$TOOLCHAIN/sysroot"
 
         # 5. Final Comprehensive Compilation
+        # Linking the extracted .o files directly is the most aggressive way 
+        # to solve 'undefined symbol' errors.
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
