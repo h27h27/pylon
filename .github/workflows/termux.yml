@@ -53,18 +53,23 @@ jobs:
 
     - name: Build Pylon Binary
       run: |
-        # We'll use a 'find' command to locate the .a file 
-        # just in case it's in a subfolder like 'lib/'
+        # 1. Locate the built static library
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
         
-        aarch64-linux-gnu-g++ -O3 \
+        # 2. Define the NDK Clang path
+        # Note: NDK 25 uses the 'llvm' prebuilt folder
+        CLANG_PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+        
+        # 3. Compile Pylon using the NDK Clang
+        $CLANG_PATH -O3 \
           -Iext/libzt/include \
           -Iext/libzt/ext/ZeroTierOne/osdep \
           -Iext/libzt/ext/ZeroTierOne/node \
+          -Iext/libzt/ext/ZeroTierOne/include \
           -std=c++11 pylon.cpp -o pylon_arm64 \
           $LIBZT_PATH \
-          -lpthread
+          -llog -landroid
 
     - name: Upload Pylon for Termux
       uses: actions/upload-artifact@v4
