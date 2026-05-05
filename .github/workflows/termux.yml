@@ -1,0 +1,36 @@
+name: Build Pylon for Termux
+
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          repository: zerotier/pylon
+          submodules: 'recursive'
+          fetch-depth: 0
+
+      - name: Install Cross-Compilation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake make
+
+      - name: Build Pylon
+        run: |
+          # We tell the compiler to target ARM64
+          # Pylon's build system will pick up these flags
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          
+          # Run the release build
+          make release
+
+      - name: Upload Termux Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylon-termux-aarch64
+          path: pylon
