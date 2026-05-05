@@ -57,14 +57,25 @@ jobs:
         
         make -j$(nproc)
 
-    - name: Build Pylon Binary (Multi-Lib Link)
+    - name: Build Pylon Binary (Final Linker Pass)
       run: |
-        # 1. Extraction (Keep your existing extraction logic)
+        # 1. Extraction - Include EVERYTHING this time
         mkdir -p obj_extract
-        LIBS=$(find ext/libzt/build_stat -name "*.a" ! -name "*miniupnpc*")
+        
+        # We find all .a files. 
+        # libzto_pic.a (Core)
+        # libzt_pic.a (Socket API)
+        # liblwip_pic.a (Stack)
+        # libminiupnpc_pic.a (UPnP - Needed for PortMapper)
+        # libnatpmp_pic.a (NAT-PMP)
+        LIBS=$(find ext/libzt/build_stat -name "*.a")
+        echo "Found libraries to merge: $LIBS"
+        
         for LIB in $LIBS; do
+          echo "Extracting $LIB..."
           cd obj_extract
-          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar x ../$LIB
+          # We use 'xo' to extract and overwrite to ensure we have one copy of every .o
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar xo ../$LIB
           cd ..
         done
 
@@ -78,8 +89,8 @@ jobs:
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
 
-        # 4. Comprehensive Compilation
-        # Added paths for Prometheus and 3rd party includes found in ZeroTierOne
+        # 4. Final Compilation
+        # Note: We keep the Prometheus include paths added in the last step
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
