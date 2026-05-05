@@ -41,14 +41,15 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # We MUST enable the Virtual Network Stack (LWIP) for Pylon to work
+        # Explicitly enable the Virtual Network Stack (LWIP)
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolcache.cmake \
           -DANDROID_ABI=arm64-v8a \
           -DANDROID_PLATFORM=android-24 \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=OFF \
-          -DZT_SDK_FLAGS="-DZT_SDK_VIRTUAL_NETWORKSTACK=1"
+          -DZT_SDK_VIRTUAL_NETWORKSTACK=ON \
+          -DZT_NO_LOGGING=ON
         
         make -j$(nproc)
 
@@ -57,10 +58,13 @@ jobs:
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
         
-        # 1. Patch pylon.cpp for Android AND C-linkage
+        # 1. Patch pylon.cpp for Android and C-Linkage
+        # Swap the bits header
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
-        # This wraps the libzt include in an extern "C" block so the linker finds the symbols
-        sed -i 's|#include "ZeroTierSockets.h"|extern "C" { #include "ZeroTierSockets.h" }|g' pylon.cpp
+        
+        # Correctly wrap the header in extern "C" using multiple lines
+        # This prevents the "expected unqualified-id" error
+        sed -i 's|#include "ZeroTierSockets.h"|extern "C" {\n#include "ZeroTierSockets.h"\n}|g' pylon.cpp
         
         # 2. Define NDK Paths
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
@@ -68,8 +72,10 @@ jobs:
         SYSROOT="$TOOLCHAIN/sysroot"
         
         # 3. Compile and Link
+        # Note the addition of ZT_SDK_VIRTUAL_NETWORKSTACK=1 so the headers enable the right structs
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
+          -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
           -I$SYSROOT/usr/include \
           -I$SYSROOT/usr/include/aarch64-linux-android \
           -Iext/libzt/include \
