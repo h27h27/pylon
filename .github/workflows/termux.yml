@@ -59,21 +59,25 @@ jobs:
       run: |
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
-        
-        # Patch pylon.cpp: 
-        # 1. Swap bits header
-        # 2. Properly wrap ZeroTierSockets.h in extern "C"
+
+        # 1. Patch the libzt header directly to FORCE C-linkage
+        # We insert the extern "C" guard at the very top of the header file
+        ZTS_HEADER="ext/libzt/include/ZeroTierSockets.h"
+        sed -i '1i #ifdef __cplusplus\nextern "C" {\n#endif' "$ZTS_HEADER"
+        echo -e "#ifdef __cplusplus\n}\n#endif" >> "$ZTS_HEADER"
+
+        # 2. Patch pylon.cpp for Android bits/types.h
         sed -i 's|<bits/types.h>|<sys/types.h>|g' pylon.cpp
-        
-        # This multi-line insertion is cleaner for the compiler
-        sed -i '/#include "ZeroTierSockets.h"/i extern "C" {' pylon.cpp
-        sed -i '/#include "ZeroTierSockets.h"/a }' pylon.cpp
-        
+
+        # 3. Define NDK Paths
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
         CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
         SYSROOT="$TOOLCHAIN/sysroot"
-        
-        # Added -DZT_SDK_VIRTUAL_NETWORKSTACK=1 to the compiler flags
+
+        # 4. Compile and Link
+        # IMPORTANT: We put the $LIBZT_PATH at the VERY END. 
+        # In many linkers, order matters: the object file that NEEDS symbols 
+        # must come before the library that PROVIDES them.
         $CLANG_PATH -O3 \
           --sysroot=$SYSROOT \
           -DZT_SDK_VIRTUAL_NETWORKSTACK=1 \
@@ -86,8 +90,9 @@ jobs:
           -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/core/include \
           -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/simpleapi/include \
           -Iext/libzt/ext/ZeroTierOne/ext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include \
-          -std=c++11 pylon.cpp -o pylon_arm64 \
-          $LIBZT_PATH \
+          -std=c++11 pylon.cpp \
+          -o pylon_arm64 \
+          "$LIBZT_PATH" \
           -llog -landroid -latomic -static-libstdc++
 
     - name: Upload Pylon for Termux
