@@ -41,27 +41,29 @@ jobs:
         cd ext/libzt
         mkdir -p build_stat && cd build_stat
         
-        # Manually invoke CMake to build the static library for Android ARM64
+        # Manually invoke CMake
         cmake .. \
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
           -DANDROID_ABI=arm64-v8a \
           -DANDROID_PLATFORM=android-24 \
-          -DZT_SDK_FLAGS="-DZT_NO_LOGGING" \
           -DCMAKE_BUILD_TYPE=Release
         
-        make -j$(nproc) zt-static
+        # Build all targets. This will definitely create the .a file.
+        make -j$(nproc)
 
     - name: Build Pylon Binary
       run: |
-        # We manually link Pylon to the static library we just built
-        # This bypasses the need for the 'dist' folder entirely
+        # We'll use a 'find' command to locate the .a file 
+        # just in case it's in a subfolder like 'lib/'
+        LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
+        echo "Found libzt.a at: $LIBZT_PATH"
         
         aarch64-linux-gnu-g++ -O3 \
           -Iext/libzt/include \
           -Iext/libzt/ext/ZeroTierOne/osdep \
           -Iext/libzt/ext/ZeroTierOne/node \
           -std=c++11 pylon.cpp -o pylon_arm64 \
-          ext/libzt/build_stat/libzt.a \
+          $LIBZT_PATH \
           -lpthread
 
     - name: Upload Pylon for Termux
