@@ -57,19 +57,22 @@ jobs:
         LIBZT_PATH=$(find ext/libzt/build_stat -name "libzt.a" | head -n 1)
         echo "Found libzt.a at: $LIBZT_PATH"
         
-        # 2. Define the NDK Clang path
-        # Note: NDK 25 uses the 'llvm' prebuilt folder
-        CLANG_PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+        # 2. Define NDK Paths
+        TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+        CLANG_PATH="$TOOLCHAIN/bin/aarch64-linux-android24-clang++"
+        SYSROOT="$TOOLCHAIN/sysroot"
         
-        # 3. Compile Pylon using the NDK Clang
+        # 3. Compile Pylon
+        # We add the sysroot so it can find bits/types.h and other system headers
         $CLANG_PATH -O3 \
+          --sysroot=$SYSROOT \
           -Iext/libzt/include \
           -Iext/libzt/ext/ZeroTierOne/osdep \
           -Iext/libzt/ext/ZeroTierOne/node \
           -Iext/libzt/ext/ZeroTierOne/include \
           -std=c++11 pylon.cpp -o pylon_arm64 \
           $LIBZT_PATH \
-          -llog -landroid
+          -llog -landroid -latomic
 
     - name: Upload Pylon for Termux
       uses: actions/upload-artifact@v4
